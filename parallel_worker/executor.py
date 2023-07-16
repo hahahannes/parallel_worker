@@ -19,6 +19,7 @@ def run_logger_thread(queue):
     main_logger.debug('start logger thread')
     while True:
         record = queue.get()
+        print(record)
         if record is None:
             break
         main_logger.debug(record)
@@ -31,7 +32,7 @@ def get_job_logger(process_index):
     logger.addHandler(fh)
     return logger
 
-def process_outputs(output_queue, output_function, shutdown_event, job_queue):
+def process_outputs(output_queue, output_function, shutdown_event, logger_queue):
     while not shutdown_event.is_set():
         try:
             record = output_queue.get(block=True, timeout=0.05)
@@ -44,7 +45,9 @@ def process_outputs(output_queue, output_function, shutdown_event, job_queue):
         output_function(record)
 
     if shutdown_event.is_set():
-        job_queue.put("SHUTDOWN EVENT SET FOR OUTPUT PROCESSOR")
+        logger_queue.put("SHUTDOWN EVENT SET FOR OUTPUT PROCESSOR")
+    else:
+        logger_queue.put("OUTPUT DONE")
 
 def fill_job_queue(generator_func, job_queue, n_jobs):
     for item in generator_func():
@@ -96,12 +99,13 @@ class Executor():
         init_signal(self.shutdown_event, self.logger)
 
     def start_logger_thread(self):
+        self.logger.debug(f'Start logging thread')
         self.lp = threading.Thread(target=run_logger_thread, args=(self.logger_queue,))
         self.lp.start()
 
     def start_output_writer(self):
         self.logger.debug(f'Start output process')
-        self.op = Process(target=process_outputs, args=(self.output_queue, self.output_func, self.shutdown_event, self.job_queue))
+        self.op = Process(target=process_outputs, args=(self.output_queue, self.output_func, self.shutdown_event, self.logger_queue))
         self.op.start()
 
     def start_fill_job_queue(self):
@@ -137,7 +141,6 @@ class Executor():
     def wait_for_processing(self):
         self.logger.debug('wait for processing')
         for worker_process in self.jobs:
-            print(worker_process)
             worker_process.join()
 
     def wait_for_output_processing(self):
